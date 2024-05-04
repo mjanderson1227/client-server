@@ -16,7 +16,7 @@ userlist_t *read_users(char *filename) {
    int userlist_size = 0, userlist_mem_size = 10;
    char buf[LINE_SIZE];
 
-   file = fopen(filename, "r");
+   file = fopen(filename, "rb");
    if (!file) {
       fprintf(stderr, "Error: File does not exist.\n");
       return NULL;
@@ -39,17 +39,19 @@ userlist_t *read_users(char *filename) {
    while (fgets(buf, LINE_SIZE, file)) {
       if (userlist_size + 1 > userlist_mem_size) {
          userlist_mem_size *= 2;
-         userlist = realloc(userlist, userlist_mem_size);
-         if (!userlist) {
+         users = realloc(users, userlist_mem_size);
+         if (!users) {
             fprintf(stderr,
                     "Error: failed allocating memory for the user array.\n");
             return NULL;
          }
       }
 
-      fscanf(file, "%64s:%64s\n", users[i].username, users[i].password);
+      sscanf(buf, "%[^:]:%s", users[i].username, users[i].password);
       i++;
    }
+
+   fclose(file);
 
    userlist->list = users;
    userlist->size = i;
@@ -59,7 +61,7 @@ userlist_t *read_users(char *filename) {
 
 bool check_exists(char *payload, userlist_t *users, SERVER_OPTION opt) {
    int i;
-   char joined[131];
+   char joined[150];
 
    for (i = 0; i < users->size; i++) {
       switch (opt) {
@@ -74,9 +76,9 @@ bool check_exists(char *payload, userlist_t *users, SERVER_OPTION opt) {
             }
             break;
          case BOTH:
-            sprintf(joined, "%64s:%64s", users->list[i].username,
+            sprintf(joined, "%s:%s", users->list[i].username,
                     users->list[i].password);
-            if (strncmp(joined, payload, 130)) {
+            if (strncmp(joined, payload, 130) == 0) {
                return true;
             }
             break;

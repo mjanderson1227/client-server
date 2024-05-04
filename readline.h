@@ -1,5 +1,6 @@
 #ifndef READLINE_H
 #define READLINE_H
+#include <stdint.h>
 
 char *readline();
 

@@ -1,30 +1,49 @@
+#include <signal.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/types.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include "user.h"
 #include "option.h"
 #include "readline.h"
 
-void handle_connection(int fd, userlist_t *data);
+// Variables to be cleaned up by signal handler.
+int sock_fd;
+userlist_t *users;
+
+void handle_connection(int, userlist_t *);
+
+// Handler for sigint
+void cleanup(int sig) {
+   close(sock_fd);
+   free(users->list);
+   free(users);
+   printf("SIGINT detected, stopping the server...\n");
+   exit(0);
+}
 
 int main(int argc, char *argv[]) {
    char usage[] = "USAGE:\nserver <PORT> <FILEPATH>";
-   int sock_fd, port, client_fd;
+   int port, client_fd;
    char *filepath;
    struct sockaddr_in server_address, client_address;
    socklen_t addr_len;
-   userlist_t *users;
+   struct sigaction interrupt_action;
 
    if (argc != 3) {
       fprintf(stderr, "Error not enough argments specified.\n%s\n", usage);
       return EXIT_FAILURE;
    }
+
+   // Block any subsequent sigint signals when handler sees the first signal.
+   sigemptyset(&interrupt_action.sa_mask);
+   sigaddset(&interrupt_action.sa_mask, SIGINT);
+
+   interrupt_action.sa_flags = 0;
+   interrupt_action.sa_handler = cleanup;
+   sigaction(SIGINT, &interrupt_action, NULL);
 
    port = atoi(argv[1]);
    filepath = argv[2];
@@ -80,37 +99,49 @@ int main(int argc, char *argv[]) {
 
 void handle_connection(int socket_fd, userlist_t *users) {
    SERVER_OPTION choice;
-   char *data, *to_write, buf[131];
+   char payload[132];
    char *response;
+   char *data;
+   bool exists;
    int response_length;
+   volatile char *to_write;
 
    static char affirmative[] =
-       "Unfortunately your password was in the breached dataset.";
+       "Unfortunately your credentials were in the breached dataset.";
 
    static char negative[] =
-       "Your password was not found in the breached dataset.";
+       "Your credentials were not found in the breached dataset.";
 
    for (;;) {
-      data = read_to_buf(socket_fd, 500);
+      choice = EXIT;
 
-      if (!data || choice == EXIT) {
+      if (!(data = read_to_buf(socket_fd, 500))) {
+         fprintf(stderr, "error reading the string to a buffer.\n");
          break;
       }
 
-      sscanf(data, "%d%130s", &choice, buf);
+      sscanf(data, "%d|%131s", &choice, payload);
+      printf("%s", payload);
 
-      to_write = check_exists(data, users, choice) ? affirmative : negative;
-      response_length = strlen(to_write);
+      if (choice == EXIT) {
+         free(data);
+         break;
+      }
+
+      exists = check_exists(payload, users, choice);
+      to_write = exists ? affirmative : negative;
+      response_length = exists ? sizeof(affirmative) : sizeof(negative);
 
       // Construct a new response string.
       response = (char *)malloc(sizeof(char) * response_length);
       sprintf(response, "%s", to_write);
 
-      if (write(socket_fd, response, strlen(response)) < 0) {
+      if (write(socket_fd, response, response_length) < 0) {
          perror("unable to send response");
          break;
       }
 
+      free(response);
       free(data);
    }
 }

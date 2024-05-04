@@ -2,6 +2,7 @@
 #define USER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "option.h"
 
 typedef struct user_t {

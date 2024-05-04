@@ -1,3 +1,4 @@
+#include "option.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,11 +76,12 @@ char *readline() {
 char *read_to_buf(int socket, int chunk_size) {
    char *buf, *to_return;
    int n_read, mem_size = chunk_size, chunk_limit = chunk_size, read_size;
+   SERVER_OPTION choice;
 
    buf = (char *)malloc(sizeof(char) * mem_size);
    if (!buf) {
       fprintf(stderr, "Error out of memory.");
-      exit(1);
+      return NULL;
    }
 
    while ((n_read = read(socket, &buf[mem_size - chunk_limit], chunk_limit)) >=
@@ -88,7 +90,7 @@ char *read_to_buf(int socket, int chunk_size) {
       buf = realloc(buf, mem_size);
       if (!buf) {
          fprintf(stderr, "Error out of memory.");
-         exit(1);
+         return NULL;
       }
    }
 
@@ -102,7 +104,7 @@ char *read_to_buf(int socket, int chunk_size) {
    to_return = (char *)malloc(sizeof(char) * (read_size + 1));
    if (!to_return) {
       fprintf(stderr, "Error out of memory.");
-      exit(1);
+      return NULL;
    }
 
    strncpy(to_return, buf, read_size);

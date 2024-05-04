@@ -1,62 +1,90 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/poll.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
 #include <netdb.h>
-#include "readline.h"
 #include <netinet/in.h>
-#include <fcntl.h>
-#include <poll.h>
 #include "option.h"
+#include "sha256_lib.h"
+#include "readline.h"
+
+char *hash_string(char *str) {
+   SHA256_CTX ctx;
+   uint8_t hash[SHA256_DIGEST_SIZE];
+   char *toreturn;
+   int i;
+
+   toreturn = (char *)malloc(sizeof(char) * SHA256_DIGEST_SIZE * 2);
+
+   sha256_init(&ctx);
+   sha256_update(&ctx, (uint8_t *)str, strlen(str));
+   sha256_final(&ctx, hash);
+
+   // Encode the string as hex.
+   for (i = 0; i < SHA256_DIGEST_SIZE; i++) {
+      sprintf(&toreturn[i * 2], "%02x", hash[i]);
+   }
+
+   return toreturn;
+}
 
 char *generate_request(SERVER_OPTION opt) {
    char *result;
    char *user_input, *extra_input;
+   char *hashed, *hashed_extra;
+   char opt_char;
 
    if (opt == EXIT) {
       return NULL;
    }
 
-   result = (char *)malloc(opt == BOTH ? 131 : 66);
+   result = (char *)malloc(opt == BOTH ? 150 : 70);
 
    switch (opt) {
       case USERNAME:
          printf("Enter your username: ");
          user_input = readline();
-         sprintf(result, "%d%s", opt, user_input);
+         hashed = hash_string(user_input);
+         sprintf(result, "%d|%s", opt, hashed);
 
          free(user_input);
+         free(hashed);
          break;
 
       case PASSWORD:
          printf("Enter your password: ");
          user_input = readline();
-         sprintf(result, "%d%s", opt, user_input);
+         hashed = hash_string(user_input);
+         sprintf(result, "%d|%s", opt, hashed);
 
          free(user_input);
+         free(hashed);
          break;
 
       case BOTH:
          printf("Enter your username: ");
          user_input = readline();
+         hashed = hash_string(user_input);
 
          printf("Enter your password: ");
          extra_input = readline();
+         hashed_extra = hash_string(extra_input);
 
-         // TODO: possible error here.
-         sprintf(result, "%d%s:%s", opt, user_input, extra_input);
+         sprintf(result, "%d|%s:%s", opt, hashed, hashed_extra);
 
          free(user_input);
          free(extra_input);
+         free(hashed);
+         free(hashed_extra);
          break;
 
       case EXIT:
+         sprintf(result, "%d|%s", opt, "\0");
          break;
    }
-
    return result;
 }
 
@@ -64,7 +92,7 @@ void print_menu() {
    printf("1. Check username/email.\n");
    printf("2. Check password.\n");
    printf("3. Check both username/email and password.\n");
-   printf("4. Check username/email\n");
+   printf("4. End Connection.\n");
    printf("Enter your choice: ");
 }
 
@@ -79,9 +107,12 @@ int main(int argc, char *argv[]) {
    int sock_server;
    int response_length;
    socklen_t alen;
-   char *hostname;
+   char *hostname, *host_entry_name;
    char *user_input;
    char *response;
+   struct hostent *host_entry; // Resolve the IP address.
+
+   bool err = false;
 
    if (argc != 3) {
       fprintf(
@@ -95,9 +126,15 @@ int main(int argc, char *argv[]) {
    port = atoi(argv[2]);
 
    memset(&addr, 0, sizeof(addr));
-   addr.sin_addr.s_addr = INADDR_ANY;
    addr.sin_port = htons((u_short)port);
    addr.sin_family = AF_INET;
+   host_entry = gethostbyname(hostname);
+   if (!(char *)host_entry) {
+      fprintf(stderr, "hostname resolve failed");
+      strerror(h_errno); // Print the type of the error that occurred.
+   }
+   // Connect the server to the resolved hostname.
+   memcpy(&addr.sin_addr, host_entry->h_addr, host_entry->h_length);
 
    sock_server = socket(PF_INET, SOCK_STREAM, 0);
    if (sock_server < 0) {
@@ -118,17 +155,21 @@ int main(int argc, char *argv[]) {
       sscanf(user_input, "%d", &choice);
       printf("choice: %d\n", choice);
 
-      if (!user_input || choice > 4 || choice < 0) {
-         close(sock_server);
-         free(user_input);
+      if (!user_input) {
          fprintf(stderr, "Error: unable to parse input line.\n");
-         return EXIT_FAILURE;
+         err = true;
+         break;
       }
 
       if (choice > 4 || choice < 0) {
          fprintf(stderr, "Error: Invalid option specified");
          free(user_input);
          continue;
+      }
+
+      if (choice == EXIT) {
+         free(user_input);
+         break;
       }
 
       // Build the request.
@@ -139,19 +180,24 @@ int main(int argc, char *argv[]) {
          perror("unable to send data");
          close(sock_server);
          free(user_input);
-         return EXIT_FAILURE;
+         err = true;
+         break;
       }
 
       // Read server response
       if (!(response = read_to_buf(sock_server, 500))) {
          perror("unable to read the server response\n");
-         return EXIT_FAILURE;
+         err = true;
+         break;
       }
 
       printf("%s\n", response);
    }
 
    close(sock_server);
+
+   if (err)
+      return EXIT_FAILURE;
 
    return EXIT_SUCCESS;
 }
