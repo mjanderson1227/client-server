@@ -85,6 +85,10 @@ char *generate_request(SERVER_OPTION opt) {
          sprintf(result, "%d|%s", opt, "\0");
          break;
    }
+
+   // Print statement for protocol.
+   printf("INFO: Request Data Sent: %s\n\n", result);
+
    return result;
 }
 
@@ -129,9 +133,9 @@ int main(int argc, char *argv[]) {
    addr.sin_port = htons((u_short)port);
    addr.sin_family = AF_INET;
    host_entry = gethostbyname(hostname);
-   if (!(char *)host_entry) {
-      fprintf(stderr, "hostname resolve failed");
-      strerror(h_errno); // Print the type of the error that occurred.
+   if (((char *)host_entry) == NULL) {
+      fprintf(stderr, "hostname resolve failed\n");
+      exit(1);
    }
    // Connect the server to the resolved hostname.
    memcpy(&addr.sin_addr, host_entry->h_addr, host_entry->h_length);
@@ -152,7 +156,7 @@ int main(int argc, char *argv[]) {
    for (;;) {
       print_menu();
       user_input = readline();
-      sscanf(user_input, "%d", &choice);
+      sscanf(user_input, "%d", (int *)&choice);
       printf("choice: %d\n", choice);
 
       if (!user_input) {
@@ -190,6 +194,8 @@ int main(int argc, char *argv[]) {
          err = true;
          break;
       }
+
+      printf("INFO: Response packet: %s\n", response);
 
       printf("%s\n", response);
    }

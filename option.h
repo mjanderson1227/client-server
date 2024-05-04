@@ -1,7 +1,7 @@
 #ifndef OPTION_H
 #define OPTION_H
 
-typedef enum SERVER_OPTION : int {
+typedef enum SERVER_OPTION {
    USERNAME = 1,
    PASSWORD = 2,
    BOTH = 3,

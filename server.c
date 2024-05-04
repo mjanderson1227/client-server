@@ -10,23 +10,38 @@
 #include "readline.h"
 
 // Variables to be cleaned up by signal handler.
-int sock_fd;
 userlist_t *users;
+int opened_client_socket = 0;
+int sock_fd = 0;
 
-void handle_connection(int, userlist_t *);
+void handle_connection();
 
-// Handler for sigint
+// Handler for sigint - Can't get this part to work correctly.
 void cleanup(int sig) {
-   close(sock_fd);
+   printf("\nSIGINT detected, stopping the server...\n");
+
+   if (opened_client_socket && close(opened_client_socket) == -1) {
+      printf("The connection socket was not being used when it was closed\n");
+   }
+
+   if (close(sock_fd) == -1) {
+      printf("The welcome socket was not being used when it was closed\n");
+   }
+
    free(users->list);
    free(users);
-   printf("SIGINT detected, stopping the server...\n");
    exit(0);
 }
 
+/*
+ * Function Main:
+ * ----------------
+ *  Main function for the server. Handles the connection and the
+ *  response to the client.
+ */
 int main(int argc, char *argv[]) {
    char usage[] = "USAGE:\nserver <PORT> <FILEPATH>";
-   int port, client_fd;
+   int port, client_fd, sock_opt = 1;
    char *filepath;
    struct sockaddr_in server_address, client_address;
    socklen_t addr_len;
@@ -55,6 +70,7 @@ int main(int argc, char *argv[]) {
    }
 
    sock_fd = socket(PF_INET, SOCK_STREAM, 0);
+
    if (sock_fd < 0) {
       perror("An error occurred while creating the socket.");
       return EXIT_FAILURE;
@@ -79,15 +95,19 @@ int main(int argc, char *argv[]) {
    }
 
    for (;;) {
-      client_fd =
+      opened_client_socket =
           accept(sock_fd, (struct sockaddr *)&client_address, &addr_len);
-      printf("Successfully accepted a connection.\n");
-      if (client_fd < 0) {
+      if (opened_client_socket < 0) {
          perror("Socket accept failed.");
          continue;
       }
-      handle_connection(client_fd, users);
-      close(client_fd);
+      handle_connection();
+      if (close(opened_client_socket) < 0) {
+         perror("close failed");
+      }
+
+      printf("Client connection was terminated.\n");
+      opened_client_socket = -1;
    }
 
    free(users->list);
@@ -97,7 +117,13 @@ int main(int argc, char *argv[]) {
    return EXIT_SUCCESS;
 }
 
-void handle_connection(int socket_fd, userlist_t *users) {
+/*
+ * Function handle_connection:
+ * ----------------
+ * Handles the connection between the server and the client.
+ * will only return when the client ends the session.
+ */
+void handle_connection() {
    SERVER_OPTION choice;
    char payload[132];
    char *response;
@@ -112,21 +138,26 @@ void handle_connection(int socket_fd, userlist_t *users) {
    static char negative[] =
        "Your credentials were not found in the breached dataset.";
 
+   printf("Established connection with client.\n");
+
    for (;;) {
       choice = EXIT;
 
-      if (!(data = read_to_buf(socket_fd, 500))) {
-         fprintf(stderr, "error reading the string to a buffer.\n");
+      if (!(data = read_to_buf(opened_client_socket, 500))) {
          break;
       }
 
-      sscanf(data, "%d|%131s", &choice, payload);
-      printf("%s", payload);
+      sscanf(data, "%d|%131s", (int *)&choice, payload);
 
-      if (choice == EXIT) {
+      if (choice == EXIT ||
+          strlen(payload) < 1) { // If the client writes a 0 payload then the
+                                 // connection is over
          free(data);
          break;
       }
+
+      // Print statement for protocol
+      printf("INFO: Server data recieved: %s\n", data);
 
       exists = check_exists(payload, users, choice);
       to_write = exists ? affirmative : negative;
@@ -135,8 +166,9 @@ void handle_connection(int socket_fd, userlist_t *users) {
       // Construct a new response string.
       response = (char *)malloc(sizeof(char) * response_length);
       sprintf(response, "%s", to_write);
+      printf("INFO: Sending response string: %s\n", response);
 
-      if (write(socket_fd, response, response_length) < 0) {
+      if (write(opened_client_socket, response, response_length) < 0) {
          perror("unable to send response");
          break;
       }
